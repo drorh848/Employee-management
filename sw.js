@@ -1,5 +1,5 @@
-/* ניהול זיהוי — Service Worker v1.0 */
-const CACHE = 'zihuy-v1';
+/* ניהול זיהוי — Service Worker v1.2 */
+const CACHE = 'zihuy-v3';
 const ASSETS = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', e => {
@@ -13,6 +13,10 @@ self.addEventListener('activate', e => {
       Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
+});
+
+self.addEventListener('message', e => {
+  if (e.data === 'skipWaiting') self.skipWaiting();
 });
 
 self.addEventListener('fetch', e => {
