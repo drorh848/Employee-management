@@ -217,6 +217,7 @@ nav button.on{color:var(--amber)}
       <div class="card">
         <h2>מצב הבוחנים</h2>
         <table class="state-table" id="stateTable"></table>
+        <button class="btn gray full" style="margin-top:12px" onclick="managePresent()">👥 הוסף / הסר בוחן מהיום</button>
       </div>
       <div class="row" style="margin-bottom:12px">
         <button class="btn gray" onclick="shareSummary()">📷 שתף סיכום</button>
@@ -271,7 +272,7 @@ nav button.on{color:var(--amber)}
       <div id="recycleList"><div style="color:var(--dim);font-size:14px">הסל ריק</div></div>
     </div>
     <div class="card" style="text-align:center;color:var(--dim);font-size:12px">
-      ניהול זיהוי v1.4 · מקומי בלבד · הנתונים נשמרים במכשיר זה
+      ניהול זיהוי v1.5 · מקומי בלבד · הנתונים נשמרים במכשיר זה
     </div>
   </section>
 </main>
@@ -307,7 +308,7 @@ nav button.on{color:var(--amber)}
    ניהול זיהוי — v1.0
    מקומי בלבד (localStorage) · עד 3 עמדות · מכסה דינמית
 ========================================================= */
-const APP_VERSION='1.4';
+const APP_VERSION='1.5';
 const APP_NAME='ZihuyManager';
 const MASTER_SECRET='ZHY#2026!srur*inspect';
 const CHARSET='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -697,6 +698,35 @@ function assignTester(k,n){
   toast(tName(n)+' נכנס לעמדה '+k+' ✔');
 }
 
+/* ---------- ניהול נוכחים באמצע היום ---------- */
+function managePresent(){
+  const box=$('modalBox');
+  let grid='';
+  for(let i=1;i<=15;i++){
+    if(!state.testers[i].name)continue;
+    const inDay=state.day.present.includes(i);
+    grid+=`<button class="pres-btn ${inDay?'on':''}" onclick="togglePresent(${i})"><b>${i}</b><span class="nm">${tName(i)}</span></button>`;
+  }
+  box.innerHTML=`<h3>👥 נוכחים היום</h3>
+    <div style="color:var(--dim);font-size:13px;margin-bottom:12px">ירוק = ביום העבודה. לחץ כדי להוסיף או להסיר. המכסה מתעדכנת מיד.</div>
+    <div class="pres-grid">${grid}</div>
+    <button class="btn gray full" style="margin-top:16px" onclick="closeModal();updateLive()">סגור</button>`;
+  $('modal').classList.remove('hidden');
+}
+function togglePresent(i){
+  const p=state.day.present;
+  if(p.includes(i)){
+    const assigned=[1,2,3].some(k=>state.day.stations[k].open&&state.day.stations[k].tester===i);
+    if(assigned){toast(tName(i)+' משובץ לעמדה — החלף אותו קודם');return;}
+    if(brList().some(b=>b.tester===i)){toast(tName(i)+' בהפסקה — סגור את ההפסקה קודם');return;}
+    state.day.present=p.filter(x=>x!==i);
+    toast(tName(i)+' הוסר מהיום');
+  }else{
+    p.push(i);p.sort((a,b)=>a-b);
+    toast(tName(i)+' נוסף ליום — המכסה עודכנה');
+  }
+  save();managePresent();updateLive();
+}
 /* ---------- תיקון זמן ידני (קוד 5555) ---------- */
 const ADJUST_CODE='5555';
 function runningStationOf(n){
