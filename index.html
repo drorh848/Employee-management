@@ -271,7 +271,7 @@ nav button.on{color:var(--amber)}
       <div id="recycleList"><div style="color:var(--dim);font-size:14px">הסל ריק</div></div>
     </div>
     <div class="card" style="text-align:center;color:var(--dim);font-size:12px">
-      ניהול זיהוי v1.2 · מקומי בלבד · הנתונים נשמרים במכשיר זה
+      ניהול זיהוי v1.3 · מקומי בלבד · הנתונים נשמרים במכשיר זה
     </div>
   </section>
 </main>
@@ -307,7 +307,7 @@ nav button.on{color:var(--amber)}
    ניהול זיהוי — v1.0
    מקומי בלבד (localStorage) · עד 3 עמדות · מכסה דינמית
 ========================================================= */
-const APP_VERSION='1.2';
+const APP_VERSION='1.3';
 const APP_NAME='ZihuyManager';
 const MASTER_SECRET='ZHY#2026!srur*inspect';
 const CHARSET='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -451,7 +451,10 @@ function dayTs(hm){const [h,m]=hm.split(':').map(Number);const d=new Date(state.
 function doneByTester(){
   const map={};state.day.present.forEach(n=>map[n]=0);
   const now=Date.now();
-  state.day.sessions.forEach(s=>{if(s.type==='work'&&map[s.tester]!=null)map[s.tester]+=(s.end-s.start)/1000;});
+  state.day.sessions.forEach(s=>{
+    if(s.type==='work'&&map[s.tester]!=null)map[s.tester]+=(s.end-s.start)/1000;
+    if(s.type==='adjust'&&map[s.tester]!=null)map[s.tester]+=s.sec;
+  });
   for(const k of [1,2,3]){const st=state.day.stations[k];
     if(st.running&&st.tester&&map[st.tester]!=null)map[st.tester]+=(now-st.start)/1000;}
   return map;
@@ -535,14 +538,15 @@ function sumSessions(tester,station){
 function drawStateTable(){
   const done=doneByTester(),q=currentQuota();
   const busy={};[1,2,3].forEach(k=>{const t=state.day.stations[k].tester;if(t)busy[t]=k;});
-  let html='<tr><th>#</th><th>שם</th><th>בוצע</th><th>נותר</th></tr>';
+  let html='<tr><th>#</th><th>שם</th><th>בוצע</th><th>נותר</th><th></th></tr>';
   const sorted=[...state.day.present].sort((a,b)=>(q-done[b])-(q-done[a]));
   sorted.forEach(n=>{
     const left=q-done[n];
     html+=`<tr><td style="font-weight:900;color:var(--amber)">${n}</td>
       <td>${tName(n)}${busy[n]?' <span style="color:var(--dim);font-size:12px">· עמדה '+busy[n]+'</span>':''}</td>
       <td class="num">${fmtHM(done[n])}</td>
-      <td class="num ${left>60?'pos':'neg'}">${left>=0?fmtHM(left):'+'+fmtHM(-left)}</td></tr>`;
+      <td class="num ${left>60?'pos':'neg'}">${left>=0?fmtHM(left):'+'+fmtHM(-left)}</td>
+      <td style="width:30px"><button class="log-edit" onclick="adjustTime(${n})">✏️</button></td></tr>`;
   });
   $('stateTable').innerHTML=html;
 }
@@ -693,6 +697,36 @@ function assignTester(k,n){
   toast(tName(n)+' נכנס לעמדה '+k+' ✔');
 }
 
+/* ---------- תיקון זמן ידני (קוד 5555) ---------- */
+const ADJUST_CODE='5555';
+function adjustTime(n){
+  const box=$('modalBox');
+  box.innerHTML=`<h3>⚙ תיקון זמן — ${tName(n)}</h3>
+    <div class="field"><label>קוד אישור</label><input type="tel" id="adjCode" placeholder="••••" maxlength="4" style="text-align:center;letter-spacing:8px;direction:ltr"></div>
+    <div class="field"><label>פעולה</label><select id="adjDir">
+      <option value="1">➕ הוסף זמן שעבד (הגיע מאוחר / לא נספר)</option>
+      <option value="-1">➖ הורד זמן</option></select></div>
+    <div class="time-grid" style="margin-bottom:0">
+      <div><label>שעות</label><input type="number" id="adjH" value="0" min="0" max="12"></div>
+      <div><label>דקות</label><input type="number" id="adjM" value="0" min="0" max="59"></div>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <button class="btn" onclick="applyAdjust(${n})">אשר תיקון</button>
+      <button class="btn gray" onclick="closeModal()">ביטול</button>
+    </div>
+    <div class="gate-err" id="adjErr"></div>`;
+  $('modal').classList.remove('hidden');
+}
+function applyAdjust(n){
+  if($('adjCode').value!==ADJUST_CODE){$('adjErr').textContent='קוד שגוי';return;}
+  const h=parseInt($('adjH').value)||0,m=parseInt($('adjM').value)||0;
+  const sec=(h*3600+m*60)*parseInt($('adjDir').value);
+  if(sec===0){$('adjErr').textContent='הזן זמן';return;}
+  const now=Date.now();
+  state.day.sessions.push({id:now+Math.random(),type:'adjust',tester:n,start:now,end:now,sec:sec});
+  save();closeModal();updateLive();
+  toast('תיקון של '+(sec>0?'+':'−')+fmtHM(Math.abs(sec))+' ל'+tName(n)+' ✔');
+}
 /* ---------- יומן ---------- */
 function renderLog(){
   const box=$('logList');
@@ -701,18 +735,20 @@ function renderLog(){
   box.innerHTML='';
   [...state.day.sessions].reverse().forEach(s=>{
     const div=document.createElement('div');div.className='log-item'+(s.type!=='work'?' pause':'');
-    const dur=s.type==='break'?s.durSec:(s.end-s.start)/1000;
+    const dur=s.type==='break'?s.durSec:(s.type==='adjust'?Math.abs(s.sec):(s.end-s.start)/1000);
     let title;
     if(s.type==='pause')title='⏸ השהיה (עמדה '+s.station+')';
     else if(s.type==='break')title='☕ הפסקה · מס\' '+s.tester+' · '+tName(s.tester)+(s.overSec>0?' · <span style="color:var(--red)">איחור '+fmtMS(s.overSec)+'</span>':'');
+    else if(s.type==='adjust')title='⚙ תיקון ידני · מס\' '+s.tester+' · '+tName(s.tester)+' · <span style="color:'+(s.sec>0?'var(--green)':'var(--red)')+'">'+(s.sec>0?'+':'−')+fmtHM(Math.abs(s.sec))+'</span>';
     else title='מס\' '+s.tester+' · '+tName(s.tester)+' · עמדה '+s.station;
-    div.innerHTML=`<div class="lstn" style="background:${s.type==='break'?'var(--amber)':colors[s.station]}"></div>
+    div.innerHTML=`<div class="lstn" style="background:${s.type==='break'?'var(--amber)':(s.type==='adjust'?'var(--dim)':colors[s.station])}"></div>
       <div class="linfo">
         <div class="lname">${title}</div>
-        <div class="ltimes">${fmtClock(s.start)} → ${fmtClock(s.end)}</div>
+        <div class="ltimes">${s.type==='adjust'?fmtClock(s.start):fmtClock(s.start)+' → '+fmtClock(s.end)}</div>
       </div>
       <div class="ldur">${fmtHM(dur)}</div>
-      ${s.type==='work'?`<button class="log-edit" onclick="editSession('${s.id}')">✏️</button>`:''}`;
+      ${s.type==='work'?`<button class="log-edit" onclick="editSession('${s.id}')">✏️</button>`:''}
+      ${s.type==='adjust'?`<button class="log-edit" onclick="delAdjust('${s.id}')">🗑</button>`:''}`;
     box.appendChild(div);
   });
 }
@@ -739,6 +775,12 @@ function saveSession(id){
 function deleteSession(id){
   state.day.sessions=state.day.sessions.filter(x=>String(x.id)!==String(id));
   save();closeModal();renderLog();toast('הרשומה נמחקה');
+}
+function delAdjust(id){
+  const code=prompt('קוד אישור למחיקת תיקון:');
+  if(code!==ADJUST_CODE){if(code!==null)toast('קוד שגוי');return;}
+  state.day.sessions=state.day.sessions.filter(x=>String(x.id)!==String(id));
+  save();renderLog();toast('התיקון נמחק');
 }
 function closeModal(){$('modal').classList.add('hidden');}
 
