@@ -272,7 +272,7 @@ nav button.on{color:var(--amber)}
       <div id="recycleList"><div style="color:var(--dim);font-size:14px">הסל ריק</div></div>
     </div>
     <div class="card" style="text-align:center;color:var(--dim);font-size:12px">
-      ניהול זיהוי v1.5 · מקומי בלבד · הנתונים נשמרים במכשיר זה
+      ניהול זיהוי v1.6 · מקומי בלבד · הנתונים נשמרים במכשיר זה
     </div>
   </section>
 </main>
@@ -308,7 +308,7 @@ nav button.on{color:var(--amber)}
    ניהול זיהוי — v1.0
    מקומי בלבד (localStorage) · עד 3 עמדות · מכסה דינמית
 ========================================================= */
-const APP_VERSION='1.5';
+const APP_VERSION='1.6';
 const APP_NAME='ZihuyManager';
 const MASTER_SECRET='ZHY#2026!srur*inspect';
 const CHARSET='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -755,6 +755,22 @@ function adjustTime(n){
     <div class="gate-err" id="adjErr"></div>`;
   $('modal').classList.remove('hidden');
 }
+function trimTester(n,s,e){
+  /* דורס רישומים קיימים של הבוחן בטווח [s,e] כדי למנוע ספירה כפולה */
+  const keep=[];
+  state.day.sessions.forEach(x=>{
+    if(x.type!=='work'||x.tester!==n){keep.push(x);return;}
+    if(x.end<=s||x.start>=e){keep.push(x);return;}          /* מחוץ לטווח */
+    if(x.start>=s&&x.end<=e){return;}                        /* בלוע — נמחק */
+    if(x.start<s&&x.end>e){                                  /* עוטף — מפוצל */
+      keep.push({...x,end:s});
+      keep.push({...x,id:x.id+0.1,start:e});return;
+    }
+    if(x.start<s){keep.push({...x,end:s});return;}           /* חופף מהתחלה */
+    keep.push({...x,start:e});                               /* חופף מהסוף */
+  });
+  state.day.sessions=keep;
+}
 function applyAdjust(n,k){
   if($('adjCode').value!==ADJUST_CODE){$('adjErr').textContent='קוד שגוי';return;}
   const sv=$('adjStart').value,ev=$('adjEnd').value;
@@ -762,25 +778,26 @@ function applyAdjust(n,k){
   const now=Date.now();
   const sTs=hmToTs(sv);
   if(sTs>now){$('adjErr').textContent='שעת ההתחלה בעתיד';return;}
-  if(k){ /* הבוחן רץ כרגע */
-    const st=state.day.stations[k];
-    if(ev){ /* סוגרים לו את הרישום */
-      const eTs=hmToTs(ev);
-      if(eTs<=sTs){$('adjErr').textContent='שעת הסיום חייבת להיות אחרי ההתחלה';return;}
-      state.day.sessions.push({id:now+Math.random(),type:'work',station:k,tester:n,start:sTs,end:eTs});
-      st.running=false;
-      toast('נרשם '+sv+'–'+ev+' ל'+tName(n)+' והעמדה הושהתה ✔');
-    }else{ /* רק שינוי התחלה — ממשיך לעבוד */
-      st.start=sTs;
-      toast('שעת ההתחלה עודכנה ל־'+sv+' — '+tName(n)+' ממשיך לעבוד ✔');
-    }
-  }else{ /* לא בעמדה — רישום מלא */
-    if(!ev){$('adjErr').textContent='הבוחן לא בעמדה — צריך גם שעת סיום';return;}
+  if(ev){
     const eTs=hmToTs(ev);
     if(eTs<=sTs){$('adjErr').textContent='שעת הסיום חייבת להיות אחרי ההתחלה';return;}
-    const station=parseInt($('adjStation').value)||1;
+    if(eTs>now){$('adjErr').textContent='שעת הסיום בעתיד';return;}
+    trimTester(n,sTs,eTs);
+    const station=k||parseInt($('adjStation')?$('adjStation').value:1)||1;
     state.day.sessions.push({id:now+Math.random(),type:'work',station:station,tester:n,start:sTs,end:eTs});
-    toast('נוסף רישום '+sv+'–'+ev+' ל'+tName(n)+' ✔');
+    if(k){ /* רץ כרגע — ממשיך לעבוד, רק בלי חפיפה עם הרישום החדש */
+      const st=state.day.stations[k];
+      if(st.start<eTs)st.start=eTs;
+      toast('נרשם '+sv+'–'+ev+' — '+tName(n)+' ממשיך לעבוד ✔');
+    }else{
+      toast('נוסף רישום '+sv+'–'+ev+' ל'+tName(n)+' ✔');
+    }
+  }else{
+    if(!k){$('adjErr').textContent='הבוחן לא בעמדה — צריך גם שעת סיום';return;}
+    /* רץ כרגע ומשנים רק התחלה — דורס כל מה שהיה מהשעה הזאת */
+    trimTester(n,sTs,now+1);
+    state.day.stations[k].start=sTs;
+    toast('שעת ההתחלה עודכנה ל־'+sv+' — '+tName(n)+' ממשיך לעבוד ✔');
   }
   save();closeModal();drawStations();updateLive();
 }
