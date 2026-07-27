@@ -272,7 +272,7 @@ nav button.on{color:var(--amber)}
       <div id="recycleList"><div style="color:var(--dim);font-size:14px">הסל ריק</div></div>
     </div>
     <div class="card" style="text-align:center;color:var(--dim);font-size:12px">
-      ניהול זיהוי v1.6 · מקומי בלבד · הנתונים נשמרים במכשיר זה
+      ניהול זיהוי v1.7 · מקומי בלבד · הנתונים נשמרים במכשיר זה
     </div>
   </section>
 </main>
@@ -308,7 +308,7 @@ nav button.on{color:var(--amber)}
    ניהול זיהוי — v1.0
    מקומי בלבד (localStorage) · עד 3 עמדות · מכסה דינמית
 ========================================================= */
-const APP_VERSION='1.6';
+const APP_VERSION='1.7';
 const APP_NAME='ZihuyManager';
 const MASTER_SECRET='ZHY#2026!srur*inspect';
 const CHARSET='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -521,9 +521,10 @@ function drawStations(){
 function updateLive(){
   if(!state.day)return;
   const now=Date.now();
+  const doneAll=doneByTester();
   for(const k of [1,2,3]){const st=state.day.stations[k];
     if(st.open&&st.tester){const el=$('timer'+k);
-      if(el){const base=sumSessions(st.tester,k);const live=st.running?(now-st.start)/1000:0;el.textContent=fmtHMS(base+live);}}}
+      if(el)el.textContent=fmtHMS(doneAll[st.tester]||0);}}
   updateBreaks();
   $('quotaNow').textContent=fmtHM(currentQuota());
   $('openCount').textContent=openStationsCount();
@@ -531,10 +532,6 @@ function updateLive(){
   $('nextHint').textContent=nx?('⭐ הבא בתור: מס\' '+nx+' — '+tName(nx)):'כל הבוחנים בעמדות';
   drawStateTable();
   if(now>dayTs(state.day.end)&&!state.day._endWarned){state.day._endWarned=true;toast('⏰ שעת הסגירה הגיעה — אפשר לסיים את היום');}
-}
-function sumSessions(tester,station){
-  return state.day.sessions.filter(s=>s.type==='work'&&s.tester===tester&&s.station===station)
-    .reduce((a,s)=>a+(s.end-s.start)/1000,0);
 }
 function drawStateTable(){
   const done=doneByTester(),q=currentQuota();
