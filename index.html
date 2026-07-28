@@ -291,7 +291,7 @@ nav button.on{color:var(--amber)}
       <div id="recycleList"><div style="color:var(--dim);font-size:14px">הסל ריק</div></div>
     </div>
     <div class="card" style="text-align:center;color:var(--dim);font-size:12px">
-      ניהול זיהוי v1.10 · מקומי בלבד · הנתונים נשמרים במכשיר זה
+      ניהול זיהוי v1.11 · מקומי בלבד · הנתונים נשמרים במכשיר זה
     </div>
   </section>
 </main>
@@ -327,7 +327,7 @@ nav button.on{color:var(--amber)}
    ניהול זיהוי — v1.0
    מקומי בלבד (localStorage) · עד 3 עמדות · מכסה דינמית
 ========================================================= */
-const APP_VERSION='1.10';
+const APP_VERSION='1.11';
 const APP_NAME='ZihuyManager';
 const MASTER_SECRET='ZHY#2026!srur*inspect';
 const CHARSET='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -1110,8 +1110,25 @@ function restoreHist(i){
   state.history.sort((a,b)=>b.date.localeCompare(a.date));
   save();renderHistory();toast('היום שוחזר להיסטוריה');
 }
+function enrichHist(h){
+  /* משלים לימים ישנים נתוני שירותים/הפסקות מהרישומים הגולמיים */
+  if(!h.sessions||!h.summary)return;
+  let changed=false;
+  if(h.quotaSec==null&&h.summary.length&&h.summary[0].quota!=null){h.quotaSec=h.summary[0].quota;changed=true;}
+  h.summary.forEach(it=>{
+    if(it.toiletN!=null)return;
+    const tl=h.sessions.filter(s=>s.type==='toilet'&&s.tester===it.num);
+    const br=h.sessions.filter(s=>s.type==='break'&&s.tester===it.num);
+    it.toiletN=tl.length;it.toiletSec=tl.reduce((a,s)=>a+(s.durSec||0),0);
+    it.breakN=br.length;it.breakSec=br.reduce((a,s)=>a+(s.durSec||0),0);
+    it.overSec=br.reduce((a,s)=>a+(s.overSec||0),0);
+    changed=true;
+  });
+  if(changed)save();
+}
 function viewHist(i){
   const h=state.history[i];
+  enrichHist(h);
   const box=$('modalBox');
   const hasTgt=h.targetSec!=null;
   let rows='';
