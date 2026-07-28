@@ -172,6 +172,7 @@ nav button.on{color:var(--amber)}
 .jsum{background:var(--bg);padding:8px 12px;font-size:13px;color:var(--dim);display:flex;flex-wrap:wrap;gap:4px 14px;border-top:1px solid var(--line)}
 .jsum b{color:var(--text)}
 .st-start{font-size:12px;color:var(--dim);direction:ltr;text-align:left}
+.manual-tag{font-size:10px;background:#3A2E10;color:var(--amber);border:1px solid var(--amber-dark);border-radius:6px;padding:1px 6px;margin-inline-start:6px;font-weight:500;white-space:nowrap}
 
 /* מסך עדכון גרסה */
 #updOverlay{position:fixed;inset:0;background:var(--bg);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
@@ -265,6 +266,7 @@ nav button.on{color:var(--amber)}
   <section id="tab-log" class="hidden">
     <div class="card">
       <h2>יומן היום</h2>
+      <button class="btn full" style="margin-bottom:12px" onclick="addLogRecord()">➕ הוסף רישום</button>
       <div id="logList"><div style="color:var(--dim);font-size:14px">אין רשומות עדיין</div></div>
     </div>
   </section>
@@ -289,7 +291,7 @@ nav button.on{color:var(--amber)}
       <div id="recycleList"><div style="color:var(--dim);font-size:14px">הסל ריק</div></div>
     </div>
     <div class="card" style="text-align:center;color:var(--dim);font-size:12px">
-      ניהול זיהוי v1.8 · מקומי בלבד · הנתונים נשמרים במכשיר זה
+      ניהול זיהוי v1.9 · מקומי בלבד · הנתונים נשמרים במכשיר זה
     </div>
   </section>
 </main>
@@ -325,7 +327,7 @@ nav button.on{color:var(--amber)}
    ניהול זיהוי — v1.0
    מקומי בלבד (localStorage) · עד 3 עמדות · מכסה דינמית
 ========================================================= */
-const APP_VERSION='1.8';
+const APP_VERSION='1.9';
 const APP_NAME='ZihuyManager';
 const MASTER_SECRET='ZHY#2026!srur*inspect';
 const CHARSET='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -529,13 +531,23 @@ function drawStations(){
       body=`<div class="empty-st">העמדה פנויה — הכנס בוחן</div>`;
       actions=`<div class="st-actions"><button class="btn" onclick="openPicker(${k})">➕ הכנס בוחן לזיהוי</button></div>`;
     }
-    const closeBtn=(k===3)?'':`<button class="st-close" onclick="toggleStation(${k})">${st.open?'סגור עמדה':''}</button>`;
+    const closeBtn=`<button class="st-close" onclick="toggleStation(${k})">✖ סגור עמדה</button>`;
     div.innerHTML=`<div class="st-head"><div class="st-title">עמדת זיהוי ${k}</div>${closeBtn}</div>${body}${actions}`;
     area.appendChild(div);
   }
-  const s3=state.day.stations[3];
-  $('toggleSt3').textContent=s3.open?'✖ סגור עמדה 3':'➕ פתח עמדה 3';
-  $('toggleSt3').onclick=()=>toggleStation(3);
+  const closed=[1,2,3].filter(k=>!state.day.stations[k].open);
+  const ob=$('toggleSt3');
+  if(closed.length){ob.classList.remove('hidden');ob.textContent='➕ פתח עמדה';ob.onclick=openStationPicker;}
+  else ob.classList.add('hidden');
+}
+function openStationPicker(){
+  const closed=[1,2,3].filter(k=>!state.day.stations[k].open);
+  if(closed.length===1){toggleStation(closed[0]);return;}
+  const box=$('modalBox');
+  box.innerHTML=`<h3>איזו עמדה לפתוח?</h3>
+    <div class="row">${closed.map(k=>`<button class="btn" onclick="closeModal();toggleStation(${k})">עמדה ${k}</button>`).join('')}</div>
+    <button class="btn gray full" style="margin-top:12px" onclick="closeModal()">ביטול</button>`;
+  $('modal').classList.remove('hidden');
 }
 function updateLive(){
   if(!state.day)return;
@@ -572,7 +584,9 @@ function drawStateTable(){
 function closeRunning(k,now){
   const st=state.day.stations[k];
   if(st.tester&&st.running){
-    state.day.sessions.push({id:Date.now()+Math.random(),type:'work',station:k,tester:st.tester,start:st.start,end:now});
+    const s={id:Date.now()+Math.random(),type:'work',station:k,tester:st.tester,start:st.start,end:now};
+    if(st.manualStart){s.manual=true;st.manualStart=false;}
+    state.day.sessions.push(s);
   }
   st.running=false;
 }
@@ -789,8 +803,7 @@ function togglePresent(i){
   }
   save();managePresent();updateLive();
 }
-/* ---------- תיקון זמן ידני (קוד 5555) ---------- */
-const ADJUST_CODE='5555';
+/* ---------- תיקון זמן ידני (מסומן ✋) ---------- */
 function runningStationOf(n){
   for(const k of [1,2,3]){const st=state.day.stations[k];
     if(st.open&&st.tester===n&&st.running)return k;}
@@ -804,7 +817,6 @@ function adjustTime(n){
     <div style="color:var(--dim);font-size:13px;margin-bottom:12px">${k
       ?'הבוחן עובד כרגע בעמדה '+k+'. שנה את שעת ההתחלה והוא ימשיך לעבוד. שעת סיום — רק אם אתה רוצה לסגור לו את הרישום.'
       :'הבוחן לא בעמדה כרגע — הוסף רישום עבודה מלא (התחלה + סיום).'}</div>
-    <div class="field"><label>קוד אישור</label><input type="tel" id="adjCode" placeholder="••••" maxlength="4" style="text-align:center;letter-spacing:8px;direction:ltr"></div>
     <div class="time-grid" style="margin-bottom:0">
       <div><label>שעת התחלה</label><input type="time" id="adjStart" value="${curStart}"></div>
       <div><label>שעת סיום (לא חובה)</label><input type="time" id="adjEnd"></div>
@@ -834,7 +846,6 @@ function trimTester(n,s,e){
   state.day.sessions=keep;
 }
 function applyAdjust(n,k){
-  if($('adjCode').value!==ADJUST_CODE){$('adjErr').textContent='קוד שגוי';return;}
   const sv=$('adjStart').value,ev=$('adjEnd').value;
   if(!sv){$('adjErr').textContent='חובה להזין שעת התחלה';return;}
   const now=Date.now();
@@ -846,8 +857,8 @@ function applyAdjust(n,k){
     if(eTs>now){$('adjErr').textContent='שעת הסיום בעתיד';return;}
     trimTester(n,sTs,eTs);
     const station=k||parseInt($('adjStation')?$('adjStation').value:1)||1;
-    state.day.sessions.push({id:now+Math.random(),type:'work',station:station,tester:n,start:sTs,end:eTs});
-    if(k){ /* רץ כרגע — ממשיך לעבוד, רק בלי חפיפה עם הרישום החדש */
+    state.day.sessions.push({id:now+Math.random(),type:'work',station:station,tester:n,start:sTs,end:eTs,manual:true});
+    if(k){
       const st=state.day.stations[k];
       if(st.start<eTs)st.start=eTs;
       toast('נרשם '+sv+'–'+ev+' — '+tName(n)+' ממשיך לעבוד ✔');
@@ -856,12 +867,45 @@ function applyAdjust(n,k){
     }
   }else{
     if(!k){$('adjErr').textContent='הבוחן לא בעמדה — צריך גם שעת סיום';return;}
-    /* רץ כרגע ומשנים רק התחלה — דורס כל מה שהיה מהשעה הזאת */
     trimTester(n,sTs,now+1);
     state.day.stations[k].start=sTs;
+    state.day.stations[k].manualStart=true;
     toast('שעת ההתחלה עודכנה ל־'+sv+' — '+tName(n)+' ממשיך לעבוד ✔');
   }
   save();closeModal();drawStations();updateLive();
+}
+function addLogRecord(){
+  if(!state.day){toast('אין יום עבודה פעיל');return;}
+  const box=$('modalBox');
+  const opts=state.day.present.map(n=>`<option value="${n}">מס' ${n} · ${tName(n)}</option>`).join('');
+  box.innerHTML=`<h3>➕ הוסף רישום זיהוי</h3>
+    <div class="field"><label>בוחן</label><select id="addTester">${opts}</select></div>
+    <div class="field"><label>עמדה</label><select id="addStation"><option value="1">עמדה 1</option><option value="2">עמדה 2</option><option value="3">עמדה 3</option></select></div>
+    <div class="time-grid" style="margin-bottom:0">
+      <div><label>משעה</label><input type="time" id="addStart"></div>
+      <div><label>עד שעה</label><input type="time" id="addEnd"></div>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <button class="btn" onclick="applyAddRecord()">הוסף</button>
+      <button class="btn gray" onclick="closeModal()">ביטול</button>
+    </div>
+    <div class="gate-err" id="addErr"></div>`;
+  $('modal').classList.remove('hidden');
+}
+function applyAddRecord(){
+  const n=parseInt($('addTester').value);
+  const station=parseInt($('addStation').value);
+  const sv=$('addStart').value,ev=$('addEnd').value;
+  if(!sv||!ev){$('addErr').textContent='חובה למלא משעה ועד שעה';return;}
+  const sTs=hmToTs(sv),eTs=hmToTs(ev),now=Date.now();
+  if(eTs<=sTs){$('addErr').textContent='שעת הסיום חייבת להיות אחרי ההתחלה';return;}
+  if(eTs>now){$('addErr').textContent='שעת הסיום בעתיד';return;}
+  const k=runningStationOf(n);
+  if(k&&state.day.stations[k].start<eTs){$('addErr').textContent='חופף לקטע שרץ עכשיו — ערוך דרך ✏️ בטבלת המצב';return;}
+  trimTester(n,sTs,eTs);
+  state.day.sessions.push({id:now+Math.random(),type:'work',station:station,tester:n,start:sTs,end:eTs,manual:true});
+  save();closeModal();renderLog();updateLive();
+  toast('נוסף רישום '+sv+'–'+ev+' ל'+tName(n)+' ✔');
 }
 /* ---------- יומן ---------- */
 function renderLog(){
@@ -881,7 +925,7 @@ function renderLog(){
       let title,dur;
       if(s.type==='work'){
         dur=(s.end-s.start)/1000;workSec+=dur;
-        title='🔧 זיהוי · עמדה '+s.station;
+        title='🔧 זיהוי · עמדה '+s.station+(s.manual?'<span class="manual-tag">✋ ידני</span>':'');
       }else if(s.type==='toilet'){
         dur=s.durSec;tN++;tSec+=dur;
         title='🚻 שירותים';
@@ -941,15 +985,13 @@ function saveSession(id){
   const s=state.day.sessions.find(x=>String(x.id)===String(id));if(!s)return;
   const a=hmToTs($('editStart').value),b=hmToTs($('editEnd').value);
   if(b<=a){toast('שעת הסיום חייבת להיות אחרי ההתחלה');return;}
-  s.start=a;s.end=b;save();closeModal();renderLog();toast('הרשומה עודכנה');
+  s.start=a;s.end=b;s.manual=true;save();closeModal();renderLog();toast('הרשומה עודכנה');
 }
 function deleteSession(id){
   state.day.sessions=state.day.sessions.filter(x=>String(x.id)!==String(id));
   save();closeModal();renderLog();toast('הרשומה נמחקה');
 }
 function delAdjust(id){
-  const code=prompt('קוד אישור למחיקת תיקון:');
-  if(code!==ADJUST_CODE){if(code!==null)toast('קוד שגוי');return;}
   state.day.sessions=state.day.sessions.filter(x=>String(x.id)!==String(id));
   save();renderLog();toast('התיקון נמחק');
 }
