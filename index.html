@@ -155,11 +155,23 @@ nav button.on{color:var(--amber)}
 #shareArea .num{direction:ltr;text-align:left;font-variant-numeric:tabular-nums;font-weight:700}
 /* הפסקה */
 .break-box{background:#241E10;border:1px solid var(--amber-dark);border-radius:12px;padding:10px 12px;margin-top:8px}
+.break-box.toilet{background:#101C28;border-color:var(--blue)}
+.break-box.toilet .break-head{color:var(--blue)}
+.break-box.toilet .break-timer{font-size:26px}
 .break-head{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--amber);font-weight:700}
 .break-timer{font-size:34px;font-weight:900;direction:ltr;text-align:center;font-variant-numeric:tabular-nums;margin:4px 0}
 .break-timer.over{color:var(--red);animation:blink 1s infinite}
 .break-actions{display:flex;gap:6px;margin-top:8px}
 .break-actions .btn{flex:1;padding:9px;font-size:13px}
+
+/* יומן מקובץ */
+.jgroup{border:1px solid var(--line);border-radius:12px;margin-bottom:12px;overflow:hidden}
+.jhead{display:flex;justify-content:space-between;align-items:center;background:var(--card2);padding:9px 12px;font-weight:900;font-size:15px}
+.jhead .jt{color:var(--amber)}
+.jbody{padding:2px 12px}
+.jsum{background:var(--bg);padding:8px 12px;font-size:13px;color:var(--dim);display:flex;flex-wrap:wrap;gap:4px 14px;border-top:1px solid var(--line)}
+.jsum b{color:var(--text)}
+.st-start{font-size:12px;color:var(--dim);direction:ltr;text-align:left}
 
 /* מסך עדכון גרסה */
 #updOverlay{position:fixed;inset:0;background:var(--bg);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
@@ -213,6 +225,11 @@ nav button.on{color:var(--amber)}
         <h2>☕ הפסקות</h2>
         <div id="breaksArea"></div>
         <button class="btn full" style="margin-top:12px;background:var(--card2);color:var(--amber);border:1px solid var(--amber-dark)" onclick="openBreakPicker()">☕ הוצא בוחן להפסקה</button>
+      </div>
+      <div class="card">
+        <h2>🚻 שירותים</h2>
+        <div id="toiletsArea"></div>
+        <button class="btn full" style="margin-top:12px;background:var(--card2);color:var(--blue);border:1px solid var(--blue)" onclick="openToiletPicker()">🚻 יצא לשירותים</button>
       </div>
       <div class="card">
         <h2>מצב הבוחנים</h2>
@@ -272,7 +289,7 @@ nav button.on{color:var(--amber)}
       <div id="recycleList"><div style="color:var(--dim);font-size:14px">הסל ריק</div></div>
     </div>
     <div class="card" style="text-align:center;color:var(--dim);font-size:12px">
-      ניהול זיהוי v1.7 · מקומי בלבד · הנתונים נשמרים במכשיר זה
+      ניהול זיהוי v1.8 · מקומי בלבד · הנתונים נשמרים במכשיר זה
     </div>
   </section>
 </main>
@@ -308,7 +325,7 @@ nav button.on{color:var(--amber)}
    ניהול זיהוי — v1.0
    מקומי בלבד (localStorage) · עד 3 עמדות · מכסה דינמית
 ========================================================= */
-const APP_VERSION='1.7';
+const APP_VERSION='1.8';
 const APP_NAME='ZihuyManager';
 const MASTER_SECRET='ZHY#2026!srur*inspect';
 const CHARSET='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -441,7 +458,7 @@ function startDay(){
     stations:{1:{open:true,tester:null,running:false,start:null},
               2:{open:true,tester:null,running:false,start:null},
               3:{open:false,tester:null,running:false,start:null}},
-    sessions:[],breaks:[],openLog:[{ts:Date.now(),count:2}]
+    sessions:[],breaks:[],toilets:[],openLog:[{ts:Date.now(),count:2}]
   };
   presSel=new Set();save();
   switchTab('live');toast('יום העבודה התחיל 💪');
@@ -488,7 +505,8 @@ function renderLive(){
   $('noDayMsg').classList.add('hidden');$('liveArea').classList.remove('hidden');
   $('dayBadge').textContent=heDate(state.day.date)+' · '+state.day.start+'–'+state.day.end;
   if(!state.day.breaks)state.day.breaks=[];
-  drawStations();drawBreaks();updateLive();
+  if(!state.day.toilets)state.day.toilets=[];
+  drawStations();drawBreaks();drawToilets();updateLive();
   tick=setInterval(updateLive,1000);
 }
 function drawStations(){
@@ -502,7 +520,8 @@ function drawStations(){
       body=`<div class="st-body">
         <div class="st-who"><div class="wnum">בוחן מס' ${st.tester}${st.running?'<span class="working-dot"></span>':''}</div>
         <div class="wname">${tName(st.tester)}</div></div>
-        <div class="st-timer ${st.running?'':'paused'}" id="timer${k}">0:00:00</div></div>`;
+        <div><div class="st-timer ${st.running?'':'paused'}" id="timer${k}">0:00:00</div>
+        ${st.running?`<div class="st-start">התחיל ${fmtClock(st.start)}</div>`:''}</div></div>`;
       actions=st.running
         ?`<div class="st-actions"><button class="btn gray" onclick="pauseStation(${k})">⏸ עצור</button><button class="btn" onclick="openPicker(${k})">🔄 החלף בוחן</button></div>`
         :`<div class="st-actions"><button class="btn green" onclick="resumeStation(${k})">▶ המשך</button><button class="btn" onclick="openPicker(${k})">🔄 החלף בוחן</button></div>`;
@@ -525,7 +544,7 @@ function updateLive(){
   for(const k of [1,2,3]){const st=state.day.stations[k];
     if(st.open&&st.tester){const el=$('timer'+k);
       if(el)el.textContent=fmtHMS(doneAll[st.tester]||0);}}
-  updateBreaks();
+  updateBreaks();updateToilets();
   $('quotaNow').textContent=fmtHM(currentQuota());
   $('openCount').textContent=openStationsCount();
   const nx=nextSuggestion(null);
@@ -616,6 +635,51 @@ function brDoneSilent(b,now){
   const over=Math.max(0,el-(state.day.breakMin||30)*60);
   state.day.sessions.push({id:now+Math.random(),type:'break',tester:b.tester,start:b.startTs,end:now,durSec:el,overSec:over});
   const i=brList().findIndex(x=>x.id===b.id);if(i>=0)brList().splice(i,1);
+}
+/* ---------- שירותים ---------- */
+function tlList(){if(!state.day.toilets)state.day.toilets=[];return state.day.toilets;}
+function openToiletPicker(){
+  const out=new Set(tlList().map(t=>t.tester));
+  const grid=$('pickGrid');grid.innerHTML='';
+  state.day.present.forEach(n=>{
+    const b=document.createElement('button');
+    b.className='pick-btn'+(out.has(n)?' busy':'');
+    b.innerHTML=`<b>${n}</b><span class="pnm">${tName(n)}</span>`;
+    b.addEventListener('click',()=>startToilet(n));
+    grid.appendChild(b);
+  });
+  $('pickerTitle').textContent='מי יצא לשירותים?';
+  $('picker').classList.remove('hidden');
+}
+function startToilet(n){
+  const now=Date.now();
+  tlList().push({id:now+Math.random(),tester:n,startTs:now});
+  save();closePicker();drawToilets();toast(tName(n)+' יצא לשירותים 🚻');
+}
+function tlDone(id){
+  const i=tlList().findIndex(x=>String(x.id)===String(id));if(i<0)return;
+  const t=tlList()[i];const now=Date.now();
+  state.day.sessions.push({id:now+Math.random(),type:'toilet',tester:t.tester,start:t.startTs,end:now,durSec:(now-t.startTs)/1000});
+  tlList().splice(i,1);
+  save();drawToilets();toast(tName(t.tester)+' חזר ✔');
+}
+function drawToilets(){
+  const area=$('toiletsArea');if(!area)return;
+  let html='';
+  tlList().forEach(t=>{
+    html+=`<div class="break-box toilet">
+      <div class="break-head"><span>מס' ${t.tester} · ${tName(t.tester)}</span><span>יצא ${fmtClock(t.startTs)}</span></div>
+      <div class="break-timer" id="tlt${String(t.id).replace('.','_')}">00:00</div>
+      <div class="break-actions"><button class="btn green" onclick="tlDone('${t.id}')">✔ חזר</button></div>
+    </div>`;
+  });
+  area.innerHTML=html||'<div style="color:var(--dim);font-size:14px">אף אחד לא בשירותים כרגע</div>';
+}
+function updateToilets(){
+  tlList().forEach(t=>{
+    const el=$('tlt'+String(t.id).replace('.','_'));if(!el)return;
+    el.textContent=fmtMS((Date.now()-t.startTs)/1000);
+  });
 }
 function drawBreaks(){
   const area=$('breaksArea');if(!area)return;
@@ -716,6 +780,7 @@ function togglePresent(i){
     const assigned=[1,2,3].some(k=>state.day.stations[k].open&&state.day.stations[k].tester===i);
     if(assigned){toast(tName(i)+' משובץ לעמדה — החלף אותו קודם');return;}
     if(brList().some(b=>b.tester===i)){toast(tName(i)+' בהפסקה — סגור את ההפסקה קודם');return;}
+    if(tlList().some(t=>t.tester===i)){toast(tName(i)+' בשירותים — סגור קודם');return;}
     state.day.present=p.filter(x=>x!==i);
     toast(tName(i)+' הוסר מהיום');
   }else{
@@ -803,25 +868,60 @@ function renderLog(){
   const box=$('logList');
   if(!state.day||!state.day.sessions.length){box.innerHTML='<div style="color:var(--dim);font-size:14px">אין רשומות עדיין</div>';return;}
   const colors={1:'var(--st1)',2:'var(--st2)',3:'var(--st3)'};
-  box.innerHTML='';
-  [...state.day.sessions].reverse().forEach(s=>{
-    const div=document.createElement('div');div.className='log-item'+(s.type!=='work'?' pause':'');
-    const dur=s.type==='break'?s.durSec:(s.type==='adjust'?Math.abs(s.sec):(s.end-s.start)/1000);
-    let title;
-    if(s.type==='pause')title='⏸ השהיה (עמדה '+s.station+')';
-    else if(s.type==='break')title='☕ הפסקה · מס\' '+s.tester+' · '+tName(s.tester)+(s.overSec>0?' · <span style="color:var(--red)">איחור '+fmtMS(s.overSec)+'</span>':'');
-    else if(s.type==='adjust')title='⚙ תיקון ידני · מס\' '+s.tester+' · '+tName(s.tester)+' · <span style="color:'+(s.sec>0?'var(--green)':'var(--red)')+'">'+(s.sec>0?'+':'−')+fmtHM(Math.abs(s.sec))+'</span>';
-    else title='מס\' '+s.tester+' · '+tName(s.tester)+' · עמדה '+s.station;
-    div.innerHTML=`<div class="lstn" style="background:${s.type==='break'?'var(--amber)':(s.type==='adjust'?'var(--dim)':colors[s.station])}"></div>
-      <div class="linfo">
-        <div class="lname">${title}</div>
-        <div class="ltimes">${s.type==='adjust'?fmtClock(s.start):fmtClock(s.start)+' → '+fmtClock(s.end)}</div>
-      </div>
-      <div class="ldur">${fmtHM(dur)}</div>
-      ${s.type==='work'?`<button class="log-edit" onclick="editSession('${s.id}')">✏️</button>`:''}
-      ${s.type==='adjust'?`<button class="log-edit" onclick="delAdjust('${s.id}')">🗑</button>`:''}`;
-    box.appendChild(div);
+  const byTester={},stationPauses=[];
+  state.day.sessions.forEach(s=>{
+    if(s.type==='pause'){stationPauses.push(s);return;}
+    (byTester[s.tester]=byTester[s.tester]||[]).push(s);
   });
+  box.innerHTML='';
+  Object.keys(byTester).map(Number).sort((a,b)=>a-b).forEach(n=>{
+    const items=byTester[n].sort((a,b)=>a.start-b.start);
+    let workSec=0,tN=0,tSec=0,bN=0,bSec=0,rows='';
+    items.forEach(s=>{
+      let title,dur;
+      if(s.type==='work'){
+        dur=(s.end-s.start)/1000;workSec+=dur;
+        title='🔧 זיהוי · עמדה '+s.station;
+      }else if(s.type==='toilet'){
+        dur=s.durSec;tN++;tSec+=dur;
+        title='🚻 שירותים';
+      }else if(s.type==='break'){
+        dur=s.durSec;bN++;bSec+=dur;
+        title='☕ הפסקה'+(s.overSec>0?' · <span style="color:var(--red)">איחור '+fmtMS(s.overSec)+'</span>':'');
+      }else if(s.type==='adjust'){
+        dur=Math.abs(s.sec);workSec+=s.sec;
+        title='⚙ תיקון ידני · <span style="color:'+(s.sec>0?'var(--green)':'var(--red)')+'">'+(s.sec>0?'+':'−')+fmtHM(Math.abs(s.sec))+'</span>';
+      }else return;
+      rows+=`<div class="log-item">
+        <div class="lstn" style="background:${s.type==='work'?colors[s.station]:(s.type==='toilet'?'var(--blue)':(s.type==='break'?'var(--amber)':'var(--dim)'))}"></div>
+        <div class="linfo"><div class="lname">${title}</div>
+        <div class="ltimes">${s.type==='adjust'?fmtClock(s.start):fmtClock(s.start)+' → '+fmtClock(s.end)}</div></div>
+        <div class="ldur">${fmtHM(dur)}</div>
+        ${s.type==='work'?`<button class="log-edit" onclick="editSession('${s.id}')">✏️</button>`:''}
+        ${s.type==='adjust'?`<button class="log-edit" onclick="delAdjust('${s.id}')">🗑</button>`:''}</div>`;
+    });
+    let sum='<span>🔧 זיהוי סה"כ <b>'+fmtHM(Math.max(0,workSec))+'</b></span>';
+    if(tN)sum+='<span>🚻 שירותים ×'+tN+' סה"כ <b>'+fmtHM(tSec)+'</b></span>';
+    if(bN)sum+='<span>☕ הפסקות ×'+bN+' סה"כ <b>'+fmtHM(bSec)+'</b></span>';
+    const g=document.createElement('div');g.className='jgroup';
+    g.innerHTML=`<div class="jhead"><span><span class="jt">מס' ${n}</span> · ${tName(n)}</span></div>
+      <div class="jbody">${rows}</div>
+      <div class="jsum">${sum}</div>`;
+    box.appendChild(g);
+  });
+  if(stationPauses.length){
+    let rows='';
+    stationPauses.sort((a,b)=>a.start-b.start).forEach(s=>{
+      rows+=`<div class="log-item pause">
+        <div class="lstn" style="background:${colors[s.station]}"></div>
+        <div class="linfo"><div class="lname">⏸ השהיית עמדה ${s.station}</div>
+        <div class="ltimes">${fmtClock(s.start)} → ${fmtClock(s.end)}</div></div>
+        <div class="ldur">${fmtHM((s.end-s.start)/1000)}</div></div>`;
+    });
+    const g=document.createElement('div');g.className='jgroup';
+    g.innerHTML=`<div class="jhead"><span>⏸ השהיות עמדות</span></div><div class="jbody">${rows}</div>`;
+    box.appendChild(g);
+  }
 }
 function editSession(id){
   const s=state.day.sessions.find(x=>String(x.id)===String(id));if(!s)return;
@@ -868,6 +968,10 @@ function doEndDay(){
   const now=Date.now();
   [1,2,3].forEach(k=>closeRunning(k,now));
   brList().slice().forEach(b=>brDoneSilent(b,now));
+  tlList().slice().forEach(t=>{
+    state.day.sessions.push({id:now+Math.random(),type:'toilet',tester:t.tester,start:t.startTs,end:now,durSec:(now-t.startTs)/1000});
+  });
+  state.day.toilets=[];
   const done=doneByTester();
   const total=Object.values(done).reduce((a,b)=>a+b,0);
   const quota=total/state.day.present.length;
