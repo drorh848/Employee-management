@@ -254,7 +254,7 @@ nav button.on{color:var(--amber)}
       </div>
       <div class="time-grid">
         <div><label>משך הפסקה (דקות)</label><input type="number" id="breakMin" value="30" min="1" max="120"></div>
-        <div></div>
+        <div><label>יעד יומי לבוחן (שעות)</label><input type="time" id="dayTarget" value="03:00"></div>
       </div>
       <h2>מי נוכח היום? <span id="presCount" style="color:var(--amber)"></span></h2>
       <div class="pres-grid" id="presGrid"></div>
@@ -291,7 +291,7 @@ nav button.on{color:var(--amber)}
       <div id="recycleList"><div style="color:var(--dim);font-size:14px">הסל ריק</div></div>
     </div>
     <div class="card" style="text-align:center;color:var(--dim);font-size:12px">
-      ניהול זיהוי v1.9 · מקומי בלבד · הנתונים נשמרים במכשיר זה
+      ניהול זיהוי v1.10 · מקומי בלבד · הנתונים נשמרים במכשיר זה
     </div>
   </section>
 </main>
@@ -327,7 +327,7 @@ nav button.on{color:var(--amber)}
    ניהול זיהוי — v1.0
    מקומי בלבד (localStorage) · עד 3 עמדות · מכסה דינמית
 ========================================================= */
-const APP_VERSION='1.9';
+const APP_VERSION='1.10';
 const APP_NAME='ZihuyManager';
 const MASTER_SECRET='ZHY#2026!srur*inspect';
 const CHARSET='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -436,6 +436,8 @@ function renderDaySetup(){
   }
   const card=$('tab-day').querySelector('.card');
   if(!card.querySelector('#presGrid')){location.reload();return;}
+  if(state.targetHM)$('dayTarget').value=state.targetHM;
+  if(state.breakMin)$('breakMin').value=state.breakMin;
   const grid=$('presGrid');grid.innerHTML='';
   for(let i=1;i<=15;i++){
     if(!state.testers[i].name)continue;
@@ -454,8 +456,11 @@ function startDay(){
   if(presSel.size<2){toast('סמן לפחות 2 בוחנים נוכחים');return;}
   const bm=parseInt($('breakMin').value)||30;
   state.breakMin=bm;
+  const tgt=$('dayTarget').value||'03:00';
+  state.targetHM=tgt;
+  const [th,tm]=tgt.split(':').map(Number);
   state.day={
-    date:todayStr(),start:st,end:en,breakMin:bm,
+    date:todayStr(),start:st,end:en,breakMin:bm,targetSec:th*3600+tm*60,
     present:[...presSel].sort((a,b)=>a-b),
     stations:{1:{open:true,tester:null,running:false,start:null},
               2:{open:true,tester:null,running:false,start:null},
@@ -564,17 +569,21 @@ function updateLive(){
   drawStateTable();
   if(now>dayTs(state.day.end)&&!state.day._endWarned){state.day._endWarned=true;toast('⏰ שעת הסגירה הגיעה — אפשר לסיים את היום');}
 }
+function dayTarget(){return state.day.targetSec||3*3600;}
+function fmtDiff(sec){return (sec>=0?'+':'−')+fmtHM(Math.abs(sec));}
 function drawStateTable(){
-  const done=doneByTester(),q=currentQuota();
+  const done=doneByTester(),q=currentQuota(),tgt=dayTarget();
   const busy={};[1,2,3].forEach(k=>{const t=state.day.stations[k].tester;if(t)busy[t]=k;});
-  let html='<tr><th>#</th><th>שם</th><th>בוצע</th><th>נותר</th><th></th></tr>';
+  let html='<tr><th>#</th><th>שם</th><th>בוצע</th><th>נותר</th><th>מול יעד '+fmtHM(tgt)+'</th><th></th></tr>';
   const sorted=[...state.day.present].sort((a,b)=>(q-done[b])-(q-done[a]));
   sorted.forEach(n=>{
     const left=q-done[n];
+    const td=done[n]-tgt;
     html+=`<tr><td style="font-weight:900;color:var(--amber)">${n}</td>
       <td>${tName(n)}${busy[n]?' <span style="color:var(--dim);font-size:12px">· עמדה '+busy[n]+'</span>':''}</td>
       <td class="num">${fmtHM(done[n])}</td>
       <td class="num ${left>60?'pos':'neg'}">${left>=0?fmtHM(left):'+'+fmtHM(-left)}</td>
+      <td class="num ${td>=0?'pos':'neg'}">${fmtDiff(td)}</td>
       <td style="width:30px"><button class="log-edit" onclick="adjustTime(${n})">✏️</button></td></tr>`;
   });
   $('stateTable').innerHTML=html;
@@ -1020,7 +1029,16 @@ function doEndDay(){
   const rec={
     date:state.day.date,start:state.day.start,end:state.day.end,
     present:state.day.present,sessions:state.day.sessions,
-    summary:state.day.present.map(n=>({num:n,name:tName(n),done:done[n],quota:quota,diff:done[n]-quota})),
+    targetSec:dayTarget(),quotaSec:quota,
+    summary:state.day.present.map(n=>{
+      const tl=state.day.sessions.filter(s=>s.type==='toilet'&&s.tester===n);
+      const br=state.day.sessions.filter(s=>s.type==='break'&&s.tester===n);
+      return {num:n,name:tName(n),done:done[n],quota:quota,diff:done[n]-quota,
+        tdiff:done[n]-dayTarget(),
+        toiletN:tl.length,toiletSec:tl.reduce((a,s)=>a+(s.durSec||0),0),
+        breakN:br.length,breakSec:br.reduce((a,s)=>a+(s.durSec||0),0),
+        overSec:br.reduce((a,s)=>a+(s.overSec||0),0)};
+    }),
     totalSec:total,savedAt:now
   };
   state.history.unshift(rec);
@@ -1032,15 +1050,18 @@ function doEndDay(){
 /* ---------- שיתוף כתמונה ---------- */
 function buildSummaryHTML(rec,liveMode){
   let rows='';
-  const items=liveMode?state.day.present.map(n=>{const d=doneByTester()[n];const q=currentQuota();return{num:n,name:tName(n),done:d,diff:d-q};}):rec.summary;
+  const tgt=liveMode?dayTarget():(rec.targetSec!=null?rec.targetSec:null);
+  const items=liveMode?state.day.present.map(n=>{const d=doneByTester()[n];const q=currentQuota();return{num:n,name:tName(n),done:d,diff:d-q,tdiff:tgt!=null?d-tgt:null};}):rec.summary;
   items.sort((a,b)=>a.num-b.num).forEach(it=>{
+    const td=tgt!=null&&it.tdiff!=null?`<td class="num" style="color:${it.tdiff>=0?'#3DDC84':'#FF5D5D'}">${it.tdiff>=0?'+':'−'}${fmtHM(Math.abs(it.tdiff))}</td>`:(tgt!=null?'<td></td>':'');
     rows+=`<tr><td style="font-weight:900;color:#FFB020">${it.num}</td><td>${it.name}</td>
       <td class="num">${fmtHM(it.done)}</td>
-      <td class="num" style="color:${it.diff>=0?'#3DDC84':'#FF5D5D'}">${it.diff>=0?'+':'−'}${fmtHM(Math.abs(it.diff))}</td></tr>`;
+      <td class="num" style="color:${it.diff>=0?'#3DDC84':'#FF5D5D'}">${it.diff>=0?'+':'−'}${fmtHM(Math.abs(it.diff))}</td>${td}</tr>`;
   });
   const d=liveMode?state.day:rec;
-  return `<h2>סיכום זיהוי</h2><div class="sd">${heDate(d.date)} · ${d.start}–${d.end} · ${d.present.length} בוחנים${liveMode?' · מצב ביניים':''}</div>
-    <table><tr><th>#</th><th>שם</th><th>בוצע</th><th>מאזן</th></tr>${rows}</table>`;
+  const quota=liveMode?currentQuota():(rec.quotaSec!=null?rec.quotaSec:null);
+  return `<h2>סיכום זיהוי</h2><div class="sd">${heDate(d.date)} · ${d.start}–${d.end} · ${d.present.length} בוחנים${liveMode?' · מצב ביניים':''}${quota!=null?' · מכסה '+fmtHM(quota):''}${tgt!=null?' · יעד '+fmtHM(tgt):''}</div>
+    <table><tr><th>#</th><th>שם</th><th>בוצע</th><th>מאזן</th>${tgt!=null?'<th>מול יעד</th>':''}</tr>${rows}</table>`;
 }
 async function shareSummary(rec){
   const live=!rec;
@@ -1092,14 +1113,29 @@ function restoreHist(i){
 function viewHist(i){
   const h=state.history[i];
   const box=$('modalBox');
+  const hasTgt=h.targetSec!=null;
   let rows='';
   h.summary.sort((a,b)=>a.num-b.num).forEach(it=>{
     rows+=`<tr><td style="font-weight:900;color:var(--amber)">${it.num}</td><td>${it.name}</td>
       <td class="num">${fmtHM(it.done)}</td>
-      <td class="num ${it.diff>=0?'pos':'neg'}">${it.diff>=0?'+':'−'}${fmtHM(Math.abs(it.diff))}</td></tr>`;
+      <td class="num ${it.diff>=0?'pos':'neg'}">${fmtDiff(it.diff)}</td>
+      ${hasTgt?`<td class="num ${it.tdiff>=0?'pos':'neg'}">${fmtDiff(it.tdiff)}</td>`:''}</tr>`;
+  });
+  let extras='';
+  h.summary.forEach(it=>{
+    if(!it.toiletN&&!it.breakN)return;
+    let parts=[];
+    if(it.toiletN)parts.push('🚻 ×'+it.toiletN+' '+fmtHM(it.toiletSec));
+    if(it.breakN)parts.push('☕ ×'+it.breakN+' '+fmtHM(it.breakSec)+(it.overSec>0?' <span style="color:var(--red)">(איחור '+fmtMS(it.overSec)+')</span>':''));
+    extras+=`<div style="font-size:13px;color:var(--dim);padding:4px 0;border-bottom:1px solid var(--line)"><b style="color:var(--text)">מס' ${it.num} · ${it.name}:</b> ${parts.join(' · ')}</div>`;
   });
   box.innerHTML=`<h3>${heDate(h.date)} · ${h.start}–${h.end}</h3>
-    <table class="state-table"><tr><th>#</th><th>שם</th><th>בוצע</th><th>מאזן</th></tr>${rows}</table>
+    <div style="color:var(--dim);font-size:13px;margin-bottom:10px">
+      ${h.quotaSec!=null?'מכסה לבוחן: <b style="color:var(--amber)">'+fmtHM(h.quotaSec)+'</b>':''}
+      ${hasTgt?' · יעד יומי: <b style="color:var(--amber)">'+fmtHM(h.targetSec)+'</b>':''}
+    </div>
+    <table class="state-table"><tr><th>#</th><th>שם</th><th>בוצע</th><th>מאזן</th>${hasTgt?'<th>מול יעד</th>':''}</tr>${rows}</table>
+    ${extras?'<div style="margin-top:12px"><div style="font-weight:700;font-size:14px;margin-bottom:4px">🚻 שירותים · ☕ הפסקות</div>'+extras+'</div>':''}
     <button class="btn gray full" style="margin-top:14px" onclick="closeModal()">סגור</button>`;
   $('modal').classList.remove('hidden');
 }
