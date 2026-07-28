@@ -1,5 +1,5 @@
-/* ניהול זיהוי — Service Worker v1.8 */
-const CACHE = 'zihuy-v9';
+/* ניהול זיהוי — Service Worker v1.9 */
+const CACHE = 'zihuy-v10';
 const ASSETS = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', e => {
