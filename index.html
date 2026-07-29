@@ -291,7 +291,7 @@ nav button.on{color:var(--amber)}
       <div id="recycleList"><div style="color:var(--dim);font-size:14px">הסל ריק</div></div>
     </div>
     <div class="card" style="text-align:center;color:var(--dim);font-size:12px">
-      ניהול זיהוי v1.11 · מקומי בלבד · הנתונים נשמרים במכשיר זה
+      ניהול זיהוי v1.12 · מקומי בלבד · הנתונים נשמרים במכשיר זה
     </div>
   </section>
 </main>
@@ -327,7 +327,7 @@ nav button.on{color:var(--amber)}
    ניהול זיהוי — v1.0
    מקומי בלבד (localStorage) · עד 3 עמדות · מכסה דינמית
 ========================================================= */
-const APP_VERSION='1.11';
+const APP_VERSION='1.12';
 const APP_NAME='ZihuyManager';
 const MASTER_SECRET='ZHY#2026!srur*inspect';
 const CHARSET='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -812,6 +812,31 @@ function togglePresent(i){
   }
   save();managePresent();updateLive();
 }
+/* ---------- שרשור החלפה: הזזת סיום של הבוחן הקודם ---------- */
+function findPrevHandoff(station,oldStartTs,excludeTester){
+  return state.day.sessions.find(s=>s.type==='work'&&s.station===station&&s.tester!==excludeTester&&Math.abs(s.end-oldStartTs)<=90000);
+}
+function askChain(prev,newTs){
+  const box=$('modalBox');
+  box.innerHTML=`<h3>🔗 לעדכן גם את הקודם?</h3>
+    <div style="font-size:14px;margin-bottom:16px;line-height:1.6">
+      <b>${tName(prev.tester)}</b> סיים בעמדה ${prev.station} בשעה <b>${fmtClock(prev.end)}</b> — נראה שהייתה כאן החלפה.<br>
+      להזיז גם את הסיום שלו ל־<b style="color:var(--amber)">${fmtClock(newTs)}</b>?</div>
+    <div class="row">
+      <button class="btn" onclick="applyChain('${prev.id}',${newTs})">כן, עדכן גם אותו</button>
+      <button class="btn gray" onclick="closeModal()">לא, רק את הנוכחי</button>
+    </div>`;
+  $('modal').classList.remove('hidden');
+}
+function applyChain(sid,newTs){
+  const s=state.day.sessions.find(x=>String(x.id)===String(sid));
+  if(s){
+    if(newTs<=s.start){toast('לא ניתן — הסיום היה לפני ההתחלה שלו');closeModal();return;}
+    s.end=newTs;s.manual=true;
+    toast('הסיום של '+tName(s.tester)+' עודכן ל־'+fmtClock(newTs)+' ✔');
+  }
+  save();closeModal();renderLog();updateLive();
+}
 /* ---------- תיקון זמן ידני (מסומן ✋) ---------- */
 function runningStationOf(n){
   for(const k of [1,2,3]){const st=state.day.stations[k];
@@ -876,10 +901,15 @@ function applyAdjust(n,k){
     }
   }else{
     if(!k){$('adjErr').textContent='הבוחן לא בעמדה — צריך גם שעת סיום';return;}
+    const oldStart=state.day.stations[k].start;
     trimTester(n,sTs,now+1);
     state.day.stations[k].start=sTs;
     state.day.stations[k].manualStart=true;
     toast('שעת ההתחלה עודכנה ל־'+sv+' — '+tName(n)+' ממשיך לעבוד ✔');
+    save();closeModal();drawStations();updateLive();
+    const prev=findPrevHandoff(k,oldStart,n);
+    if(prev&&Math.abs(sTs-oldStart)>30000)askChain(prev,sTs);
+    return;
   }
   save();closeModal();drawStations();updateLive();
 }
@@ -887,9 +917,13 @@ function addLogRecord(){
   if(!state.day){toast('אין יום עבודה פעיל');return;}
   const box=$('modalBox');
   const opts=state.day.present.map(n=>`<option value="${n}">מס' ${n} · ${tName(n)}</option>`).join('');
-  box.innerHTML=`<h3>➕ הוסף רישום זיהוי</h3>
+  box.innerHTML=`<h3>➕ הוסף רישום</h3>
+    <div class="field"><label>סוג</label><select id="addType" onchange="$('addStationWrap').style.display=this.value==='work'?'block':'none'">
+      <option value="work">🔧 זיהוי</option>
+      <option value="break">☕ הפסקה</option>
+      <option value="toilet">🚻 שירותים</option></select></div>
     <div class="field"><label>בוחן</label><select id="addTester">${opts}</select></div>
-    <div class="field"><label>עמדה</label><select id="addStation"><option value="1">עמדה 1</option><option value="2">עמדה 2</option><option value="3">עמדה 3</option></select></div>
+    <div class="field" id="addStationWrap"><label>עמדה</label><select id="addStation"><option value="1">עמדה 1</option><option value="2">עמדה 2</option><option value="3">עמדה 3</option></select></div>
     <div class="time-grid" style="margin-bottom:0">
       <div><label>משעה</label><input type="time" id="addStart"></div>
       <div><label>עד שעה</label><input type="time" id="addEnd"></div>
@@ -902,17 +936,25 @@ function addLogRecord(){
   $('modal').classList.remove('hidden');
 }
 function applyAddRecord(){
+  const type=$('addType').value;
   const n=parseInt($('addTester').value);
-  const station=parseInt($('addStation').value);
   const sv=$('addStart').value,ev=$('addEnd').value;
   if(!sv||!ev){$('addErr').textContent='חובה למלא משעה ועד שעה';return;}
   const sTs=hmToTs(sv),eTs=hmToTs(ev),now=Date.now();
   if(eTs<=sTs){$('addErr').textContent='שעת הסיום חייבת להיות אחרי ההתחלה';return;}
   if(eTs>now){$('addErr').textContent='שעת הסיום בעתיד';return;}
-  const k=runningStationOf(n);
-  if(k&&state.day.stations[k].start<eTs){$('addErr').textContent='חופף לקטע שרץ עכשיו — ערוך דרך ✏️ בטבלת המצב';return;}
-  trimTester(n,sTs,eTs);
-  state.day.sessions.push({id:now+Math.random(),type:'work',station:station,tester:n,start:sTs,end:eTs,manual:true});
+  if(type==='work'){
+    const station=parseInt($('addStation').value);
+    const k=runningStationOf(n);
+    if(k&&state.day.stations[k].start<eTs){$('addErr').textContent='חופף לקטע שרץ עכשיו — ערוך דרך ✏️ בטבלת המצב';return;}
+    trimTester(n,sTs,eTs);
+    state.day.sessions.push({id:now+Math.random(),type:'work',station:station,tester:n,start:sTs,end:eTs,manual:true});
+  }else{
+    const dur=(eTs-sTs)/1000;
+    const rec={id:now+Math.random(),type:type,tester:n,start:sTs,end:eTs,durSec:dur,manual:true};
+    if(type==='break')rec.overSec=Math.max(0,dur-(state.day.breakMin||30)*60);
+    state.day.sessions.push(rec);
+  }
   save();closeModal();renderLog();updateLive();
   toast('נוסף רישום '+sv+'–'+ev+' ל'+tName(n)+' ✔');
 }
@@ -937,10 +979,10 @@ function renderLog(){
         title='🔧 זיהוי · עמדה '+s.station+(s.manual?'<span class="manual-tag">✋ ידני</span>':'');
       }else if(s.type==='toilet'){
         dur=s.durSec;tN++;tSec+=dur;
-        title='🚻 שירותים';
+        title='🚻 שירותים'+(s.manual?'<span class="manual-tag">✋ ידני</span>':'');
       }else if(s.type==='break'){
         dur=s.durSec;bN++;bSec+=dur;
-        title='☕ הפסקה'+(s.overSec>0?' · <span style="color:var(--red)">איחור '+fmtMS(s.overSec)+'</span>':'');
+        title='☕ הפסקה'+(s.overSec>0?' · <span style="color:var(--red)">איחור '+fmtMS(s.overSec)+'</span>':'')+(s.manual?'<span class="manual-tag">✋ ידני</span>':'');
       }else if(s.type==='adjust'){
         dur=Math.abs(s.sec);workSec+=s.sec;
         title='⚙ תיקון ידני · <span style="color:'+(s.sec>0?'var(--green)':'var(--red)')+'">'+(s.sec>0?'+':'−')+fmtHM(Math.abs(s.sec))+'</span>';
@@ -951,6 +993,7 @@ function renderLog(){
         <div class="ltimes">${s.type==='adjust'?fmtClock(s.start):fmtClock(s.start)+' → '+fmtClock(s.end)}</div></div>
         <div class="ldur">${fmtHM(dur)}</div>
         ${s.type==='work'?`<button class="log-edit" onclick="editSession('${s.id}')">✏️</button>`:''}
+        ${(s.type==='break'||s.type==='toilet')?`<button class="log-edit" onclick="editOther('${s.id}')">✏️</button>`:''}
         ${s.type==='adjust'?`<button class="log-edit" onclick="delAdjust('${s.id}')">🗑</button>`:''}</div>`;
     });
     let sum='<span>🔧 זיהוי סה"כ <b>'+fmtHM(Math.max(0,workSec))+'</b></span>';
@@ -994,7 +1037,12 @@ function saveSession(id){
   const s=state.day.sessions.find(x=>String(x.id)===String(id));if(!s)return;
   const a=hmToTs($('editStart').value),b=hmToTs($('editEnd').value);
   if(b<=a){toast('שעת הסיום חייבת להיות אחרי ההתחלה');return;}
+  const oldStart=s.start;
   s.start=a;s.end=b;s.manual=true;save();closeModal();renderLog();toast('הרשומה עודכנה');
+  if(Math.abs(a-oldStart)>30000){
+    const prev=findPrevHandoff(s.station,oldStart,s.tester);
+    if(prev)askChain(prev,a);
+  }
 }
 function deleteSession(id){
   state.day.sessions=state.day.sessions.filter(x=>String(x.id)!==String(id));
@@ -1003,6 +1051,28 @@ function deleteSession(id){
 function delAdjust(id){
   state.day.sessions=state.day.sessions.filter(x=>String(x.id)!==String(id));
   save();renderLog();toast('התיקון נמחק');
+}
+function editOther(id){
+  const s=state.day.sessions.find(x=>String(x.id)===String(id));if(!s)return;
+  const label=s.type==='break'?'☕ הפסקה':'🚻 שירותים';
+  const box=$('modalBox');
+  box.innerHTML=`<h3>עריכת ${label} — ${tName(s.tester)}</h3>
+    <div class="field"><label>משעה</label><input type="time" id="editStart" value="${fmtClock(s.start)}"></div>
+    <div class="field"><label>עד שעה</label><input type="time" id="editEnd" value="${fmtClock(s.end)}"></div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn" onclick="saveOther('${id}')">שמור</button>
+      <button class="btn red" onclick="deleteSession('${id}')">מחק</button>
+    </div>
+    <button class="btn gray full" style="margin-top:10px" onclick="closeModal()">ביטול</button>`;
+  $('modal').classList.remove('hidden');
+}
+function saveOther(id){
+  const s=state.day.sessions.find(x=>String(x.id)===String(id));if(!s)return;
+  const a=hmToTs($('editStart').value),b=hmToTs($('editEnd').value);
+  if(b<=a){toast('שעת הסיום חייבת להיות אחרי ההתחלה');return;}
+  s.start=a;s.end=b;s.durSec=(b-a)/1000;s.manual=true;
+  if(s.type==='break')s.overSec=Math.max(0,s.durSec-(state.day.breakMin||30)*60);
+  save();closeModal();renderLog();toast('הרשומה עודכנה');
 }
 function closeModal(){$('modal').classList.add('hidden');}
 
